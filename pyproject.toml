@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo-analyzer-lite"
+version = "0.1.0"
+description = "Read-only CLI that counts repository files by extension."
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+repo-analyzer-lite = "repo_analyzer_lite.cli:main"
+
+[tool.setuptools]
+packages = ["repo_analyzer_lite"]
