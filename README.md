@@ -1,48 +1,73 @@
 # Repo Analyzer Lite
 
-A small, read-only CLI that scans a local directory and reports file counts as
-deterministic JSON.
+[![Tests](https://github.com/BarisCeyhun26/repo-analyzer-lite/actions/workflows/tests.yml/badge.svg)](https://github.com/BarisCeyhun26/repo-analyzer-lite/actions/workflows/tests.yml)
 
-## What v0 does
+A read-only local repository analysis CLI that counts regular files and groups
+them by extension. It produces deterministic JSON without opening file
+contents, executing project code, or modifying the target repository.
+
+## Why it exists
+
+A small repository summary should be easy to inspect, reproduce, and trust.
+This utility starts with file counts and extension statistics, with automated
+tests covering scan failures, exclusions, determinism, and read-only safety.
+
+## Current capabilities
 
 - Recursively scans a local directory.
-- Reports the total number of regular files and the count per file extension.
-- Skips common generated/heavy directories (at any depth): `.git`, `.hg`,
-  `.svn`, `node_modules`, `__pycache__`, `.venv`, `venv`, `.tox`,
-  `.mypy_cache`, `.pytest_cache`, `.ruff_cache`, `dist`, `build`, `target`.
-- Never follows or counts symbolic links.
-- Fails (nonzero exit, no stdout) on any access error; a partial scan is
-  never reported as success.
-- Output contains only counts: no paths, file names, or file contents.
-- Produces byte-identical output for an unchanged tree (sorted keys).
+- Reports total regular files and counts by extension.
+- Skips generated/heavy directories at any depth: `.git`, `.hg`, `.svn`,
+  `node_modules`, `__pycache__`, `.venv`, `venv`, `.tox`, `.mypy_cache`,
+  `.pytest_cache`, `.ruff_cache`, `dist`, `build`, and `target`.
+- Never follows or counts symbolic links inside the scanned tree.
+- Fails on access errors rather than reporting a partial scan as successful.
+- Returns counts only: no paths, file names, or contents in successful output.
+- Produces byte-identical JSON for an unchanged tree.
 
-Requires Python 3.9+. No third-party dependencies.
+## Design principles
 
-## Usage
+- **Target repositories are treated as read-only.** Only directory entries and
+  file metadata are inspected.
+- **Deterministic results.** Extensions and JSON keys are sorted.
+- **Explicit failure.** Missing paths and access errors return a nonzero exit.
+- **Small runtime footprint.** Python standard library only; no network,
+  AI API, paid service, or hosting requirement.
+
+## Quick start
+
+Requires Python 3.9+. From the repository root, no installation is needed:
 
 ```sh
-python3 -m repo_analyzer_lite /path/to/repo
+python3 -m repo_analyzer_lite .
 ```
 
-Or install the `repo-analyzer-lite` command:
+For an installed command, create a virtual environment (POSIX shell):
 
 ```sh
-pip install -e .
-repo-analyzer-lite /path/to/repo
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/repo-analyzer-lite .
 ```
 
-Exit codes:
+The CLI takes one argument: the directory to scan.
 
-| Code | Meaning                                                             |
-| ---- | ------------------------------------------------------------------- |
-| 0    | Scan succeeded; JSON result on stdout                               |
-| 1    | Path missing, not a directory, or any access error during the scan; JSON error on stderr, nothing on stdout |
-| 2    | Invalid command-line usage                                          |
+```sh
+python3 -m repo_analyzer_lite path/to/repository
+```
 
-## Example output
+## Reproducible example
 
-For a directory containing `README.md`, `src/main.PY`, `src/util.py`,
-`LICENSE`, and `archive.tar.gz`:
+Create a small directory and scan it (POSIX shell):
+
+```sh
+example_dir=$(mktemp -d)
+mkdir -p "$example_dir/src"
+touch "$example_dir/README.md" "$example_dir/src/main.PY" \
+  "$example_dir/src/util.py" "$example_dir/LICENSE" "$example_dir/archive.tar.gz"
+python3 -m repo_analyzer_lite "$example_dir"
+```
+
+Output:
 
 ```json
 {
@@ -56,24 +81,25 @@ For a directory containing `README.md`, `src/main.PY`, `src/util.py`,
 }
 ```
 
-`total_files` always equals the sum of the `by_extension` counts. An empty
-directory gives `{"by_extension": {}, "total_files": 0}`.
-
-Error examples (stderr, exit code 1, stdout empty). Error messages do not
-include paths:
-
-```json
-{"error": "path does not exist"}
-{"error": "cannot read a directory inside the tree: Permission denied"}
-```
+`total_files` equals the sum of `by_extension`. An empty directory has zero
+files and an empty extension map.
 
 ### Extension rules
 
-- The extension is the last suffix, lowercased: `a.PY` → `.py`,
-  `x.tar.gz` → `.gz`.
-- Files without an extension (`README`, `LICENSE`, `Makefile`), dotfiles such
-  as `.env` or `.gitignore`, and names ending in `.` are counted under
-  `"[no_extension]"`.
+- The last suffix is lowercased: `a.PY` → `.py`, `x.tar.gz` → `.gz`.
+- Files without extensions, dotfiles such as `.gitignore`, and names ending
+  in `.` are counted under `"[no_extension]"`.
+
+### Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| 0 | Complete scan; JSON result on stdout |
+| 1 | Missing path, non-directory, or access error; JSON error on stderr, no stdout |
+| 2 | Invalid command-line usage |
+
+For example, a missing path returns `{"error": "path does not exist"}` on
+stderr. Error messages do not include paths.
 
 ## Read-only safety
 
@@ -99,10 +125,31 @@ include paths:
 - No language, dependency, framework, or architecture analysis yet.
 - Output is JSON only.
 
-## Development
+## Project structure
 
-Run the tests (standard library `unittest`, no extra packages):
+```text
+repo_analyzer_lite/
+  scanner.py   directory traversal, exclusions, and extension counts
+  cli.py       argument parsing and JSON output
+  __main__.py  module entry point
+tests/
+  test_scanner.py  scanner, safety, failure, and CLI tests
+```
+
+## Testing
+
+The suite uses standard-library `unittest`; no extra packages are required:
 
 ```sh
-python3 -m unittest discover -s tests -t .
+python3 -B -X dev -W error -m unittest discover -s tests -t .
 ```
+
+GitHub Actions runs the suite on Ubuntu with Python 3.9, 3.12, and 3.14 on
+pushes and pull requests. These are representative versions, not a claim
+that every Python release or operating system has been tested.
+
+## Status and future work
+
+The current baseline is intentionally limited to file counts and extension
+statistics. Possible future directions include configurable exclusions and
+richer summaries; these are not implemented or scheduled commitments.
