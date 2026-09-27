@@ -52,12 +52,17 @@ def extension_of(name):
     return ext.lower()
 
 
-def scan(path, *, structure=False):
+def scan(path, *, structure=False, sizes=False):
     """Scan ``path`` recursively and return a JSON-serializable summary.
 
     With ``structure=True`` the summary also contains ``by_directory``: files
     directly in the root are counted under ROOT_BUCKET, and every other file
     under the first-level directory that contains it.
+
+    With ``sizes=True`` it also contains ``sizes``: the total logical size
+    (``st_size``) of the counted files and its split by extension. Sizes come
+    from the same metadata record used to classify each entry; files are never
+    opened.
 
     Any access error while scanning aborts the scan with ScanError; a partial
     result is never returned.
@@ -73,6 +78,8 @@ def scan(path, *, structure=False):
     total_files = 0
     by_extension = {}
     by_directory = {ROOT_BUCKET: 0}
+    total_bytes = 0
+    bytes_by_extension = {}
 
     stack = [(root, ROOT_BUCKET)]
     while stack:
@@ -86,11 +93,12 @@ def scan(path, *, structure=False):
 
         for entry in entries:
             try:
-                mode = entry.stat(follow_symlinks=False).st_mode
+                st = entry.stat(follow_symlinks=False)
             except OSError as exc:
                 raise ScanError(
                     f"cannot read file metadata inside the tree: {exc.strerror or 'access error'}"
                 ) from None
+            mode = st.st_mode
             if stat.S_ISLNK(mode):
                 continue
             if stat.S_ISDIR(mode):
@@ -102,6 +110,8 @@ def scan(path, *, structure=False):
                 ext = extension_of(entry.name)
                 by_extension[ext] = by_extension.get(ext, 0) + 1
                 by_directory[bucket] = by_directory.get(bucket, 0) + 1
+                total_bytes += st.st_size
+                bytes_by_extension[ext] = bytes_by_extension.get(ext, 0) + st.st_size
             # Sockets, FIFOs, and device files are ignored.
 
     result = {
@@ -110,4 +120,9 @@ def scan(path, *, structure=False):
     }
     if structure:
         result["by_directory"] = dict(sorted(by_directory.items()))
+    if sizes:
+        result["sizes"] = {
+            "total_bytes": total_bytes,
+            "by_extension": dict(sorted(bytes_by_extension.items())),
+        }
     return result
