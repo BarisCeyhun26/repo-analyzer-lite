@@ -16,6 +16,8 @@ tests covering scan failures, exclusions, determinism, and read-only safety.
 
 - Recursively scans a local directory.
 - Reports total regular files and counts by extension.
+- Optionally (`--structure`) reports how those files are distributed across
+  the repository root and its first-level directories.
 - Skips generated/heavy directories at any depth: `.git`, `.hg`, `.svn`,
   `node_modules`, `__pycache__`, `.venv`, `venv`, `.tox`, `.mypy_cache`,
   `.pytest_cache`, `.ruff_cache`, `dist`, `build`, and `target`.
@@ -49,10 +51,12 @@ python3 -m venv .venv
 .venv/bin/repo-analyzer-lite .
 ```
 
-The CLI takes one argument: the directory to scan.
+The CLI takes one argument, the directory to scan, and one optional flag,
+`--structure` (see [Directory summary](#directory-summary-opt-in)).
 
 ```sh
 python3 -m repo_analyzer_lite path/to/repository
+python3 -m repo_analyzer_lite path/to/repository --structure
 ```
 
 ## Reproducible example
@@ -101,6 +105,66 @@ files and an empty extension map.
 For example, a missing path returns `{"error": "path does not exist"}` on
 stderr. Error messages do not include paths.
 
+## Directory summary (opt-in)
+
+Pass `--structure` (before or after the path) to add one field,
+`by_directory`, that shows where the counted files live:
+
+```sh
+repo-analyzer-lite PATH --structure
+python3 -m repo_analyzer_lite PATH --structure
+```
+
+Using the same example directory as above:
+
+```sh
+python3 -m repo_analyzer_lite "$example_dir" --structure
+```
+
+Output:
+
+```json
+{
+  "by_directory": {
+    ".": 3,
+    "src": 2
+  },
+  "by_extension": {
+    ".gz": 1,
+    ".md": 1,
+    ".py": 2,
+    "[no_extension]": 1
+  },
+  "total_files": 5
+}
+```
+
+- It is opt-in. Without `--structure` the output is exactly the two-field
+  JSON shown above; nothing is added or changed.
+- Only the exact spelling `--structure` is accepted. Abbreviations such as
+  `--st` are rejected as unknown flags (exit code 2).
+- `"."` counts regular files directly in the scanned root. It is always
+  present, even when it is `0`.
+- Every other key is the exact name of a first-level directory. Its count is
+  recursive: files in deeper directories are added to their first-level
+  ancestor (`src/deep/data.json` counts toward `"src"`).
+- Only first-level directories that contain at least one counted file appear.
+  Empty directories, and directories containing only excluded directories,
+  symlinks, or special files, are omitted.
+- The same exclusion and symlink rules apply, so `by_directory` covers
+  exactly the files in `total_files`: its values always sum to `total_files`.
+- It is not a directory tree. Deeper directory names, file names, the root
+  name, and absolute paths are never included. First-level directory names
+  are the only names disclosed, and only with this flag.
+- Directory names are reported as-is (no case folding or Unicode
+  normalization). Keys are sorted by Python string order, and non-ASCII
+  characters are written as JSON `\u` escapes, which decode back to the
+  original names.
+- Errors behave exactly as without the flag: exit code 1, one JSON error on
+  stderr, no stdout, and no partial result.
+- It reuses the same single read-only scan: no extra file access, network,
+  dependencies, or cost.
+
 ## Read-only safety
 
 - The scanner only lists directories and reads entry metadata (`lstat`). It
@@ -123,17 +187,20 @@ stderr. Error messages do not include paths.
   not.
 - Extension is purely name-based (no content or language detection).
 - No language, dependency, framework, or architecture analysis yet.
+- `--structure` summarizes only the first directory level; there is no full
+  tree, depth option, or per-directory extension breakdown.
 - Output is JSON only.
 
 ## Project structure
 
 ```text
 repo_analyzer_lite/
-  scanner.py   directory traversal, exclusions, and extension counts
+  scanner.py   directory traversal, exclusions, extension and directory counts
   cli.py       argument parsing and JSON output
   __main__.py  module entry point
 tests/
-  test_scanner.py  scanner, safety, failure, and CLI tests
+  test_scanner.py    scanner, safety, failure, and CLI tests
+  test_structure.py  --structure / by_directory tests and default compatibility
 ```
 
 ## Testing
@@ -150,6 +217,7 @@ that every Python release or operating system has been tested.
 
 ## Status and future work
 
-The current baseline is intentionally limited to file counts and extension
-statistics. Possible future directions include configurable exclusions and
-richer summaries; these are not implemented or scheduled commitments.
+The current baseline is intentionally limited to file counts, extension
+statistics, and the opt-in first-level directory summary. Possible future
+directions include configurable exclusions and richer summaries; these are
+not implemented or scheduled commitments.

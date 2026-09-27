@@ -30,6 +30,9 @@ EXCLUDED_DIR_NAMES = frozenset(
 
 NO_EXTENSION = "[no_extension]"
 
+# by_directory key for regular files directly inside the scanned root.
+ROOT_BUCKET = "."
+
 
 class ScanError(Exception):
     """Raised when the tree cannot be scanned completely.
@@ -49,8 +52,12 @@ def extension_of(name):
     return ext.lower()
 
 
-def scan(path):
+def scan(path, *, structure=False):
     """Scan ``path`` recursively and return a JSON-serializable summary.
+
+    With ``structure=True`` the summary also contains ``by_directory``: files
+    directly in the root are counted under ROOT_BUCKET, and every other file
+    under the first-level directory that contains it.
 
     Any access error while scanning aborts the scan with ScanError; a partial
     result is never returned.
@@ -65,10 +72,11 @@ def scan(path):
 
     total_files = 0
     by_extension = {}
+    by_directory = {ROOT_BUCKET: 0}
 
-    stack = [root]
+    stack = [(root, ROOT_BUCKET)]
     while stack:
-        current = stack.pop()
+        current, bucket = stack.pop()
         try:
             with os.scandir(current) as it:
                 entries = sorted(it, key=lambda e: e.name)
@@ -87,14 +95,19 @@ def scan(path):
                 continue
             if stat.S_ISDIR(mode):
                 if entry.name not in EXCLUDED_DIR_NAMES:
-                    stack.append(entry.path)
+                    # Deeper directories stay in their first-level ancestor's bucket.
+                    stack.append((entry.path, entry.name if current == root else bucket))
             elif stat.S_ISREG(mode):
                 total_files += 1
                 ext = extension_of(entry.name)
                 by_extension[ext] = by_extension.get(ext, 0) + 1
+                by_directory[bucket] = by_directory.get(bucket, 0) + 1
             # Sockets, FIFOs, and device files are ignored.
 
-    return {
+    result = {
         "total_files": total_files,
         "by_extension": dict(sorted(by_extension.items())),
     }
+    if structure:
+        result["by_directory"] = dict(sorted(by_directory.items()))
+    return result
